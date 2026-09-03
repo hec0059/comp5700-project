@@ -1,0 +1,19 @@
+# Python virtual environment
+comp5700-venv/
+.venv/
+venv/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# macOS files
+.DS_Store
+
+# CIS benchmark PDFs - local input only, do NOT publish
+data/input/*.pdf
+
+# PyInstaller temporary build files
+build/
+*.spec
