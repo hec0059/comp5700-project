@@ -12,7 +12,9 @@ from src.comparator import (
     compare_kde_requirements,
 )
 from src.executor import (
+    export_hadolint_csv,
     map_differences_to_hadolint_rules,
+    run_hadolint,
 )
 
 
@@ -38,6 +40,15 @@ def main():
         "--output-dir",
         default="outputs/run",
         help="Directory for generated project outputs.",
+    )
+
+    parser.add_argument(
+        "--dockerfiles",
+        default="dockerfiles.zip",
+        help=(
+            "Path to the Dockerfiles ZIP archive or directory. "
+            "Defaults to dockerfiles.zip."
+        ),
     )
 
     args = parser.parse_args()
@@ -112,12 +123,34 @@ def main():
         rules_file,
     )
 
+    dockerfiles_path = Path(args.dockerfiles)
+
+    if not dockerfiles_path.exists():
+        raise FileNotFoundError(
+            f"Dockerfiles input not found: {dockerfiles_path}. "
+            "Provide the course Dockerfiles archive with "
+            "--dockerfiles PATH."
+        )
+
+    print("\nRunning Hadolint...")
+
+    dataframe = run_hadolint(
+        dockerfiles_path,
+        rules_file,
+    )
+
+    csv_file = export_hadolint_csv(
+        dataframe,
+        task3_dir / "hadolint_results.csv",
+    )
+
     print("\n========================================")
     print("PROCESSING COMPLETE")
     print("========================================")
     print(f"Task 1 outputs: {task1_dir}")
     print(f"Task 2 outputs: {task2_dir}")
     print(f"Hadolint rules: {rules_file}")
+    print(f"Hadolint CSV: {csv_file}")
     print()
     print("Selected Hadolint rules:")
     print(rules_text)
