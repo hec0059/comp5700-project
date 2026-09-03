@@ -17,3 +17,6 @@ data/input/*.pdf
 # PyInstaller temporary build files
 build/
 *.spec
+
+# Generated CIS-derived outputs - keep local, do not publish
+outputs/
