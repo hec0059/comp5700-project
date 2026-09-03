@@ -545,8 +545,22 @@ def run_hadolint(
                 source,
                 "r",
             ) as archive:
+                real_members = [
+                    member
+                    for member in archive.infolist()
+                    if (
+                        not member.is_dir()
+                        and "dockerfile"
+                        in Path(member.filename).name.lower()
+                        and "__MACOSX"
+                        not in Path(member.filename).parts
+                        and not Path(member.filename).name.startswith("._")
+                    )
+                ]
+
                 archive.extractall(
-                    extract_path
+                    extract_path,
+                    members=real_members,
                 )
 
             scan_root = extract_path
@@ -566,6 +580,8 @@ def run_hadolint(
             if (
                 path.is_file()
                 and "dockerfile" in path.name.lower()
+                and "__MACOSX" not in path.parts
+                and not path.name.startswith("._")
             )
         )
 
@@ -585,8 +601,18 @@ def run_hadolint(
         )
 
         raw_rows = []
+        batch_size = 250
 
-        for dockerfile in dockerfiles:
+        for batch_start in range(
+            0,
+            len(dockerfiles),
+            batch_size,
+        ):
+            batch = dockerfiles[
+                batch_start:
+                batch_start + batch_size
+            ]
+
             command = [
                 executable,
                 "--config",
@@ -610,8 +636,9 @@ def run_hadolint(
                         ]
                     )
 
-            command.append(
+            command.extend(
                 str(dockerfile)
+                for dockerfile in batch
             )
 
             completed = subprocess.run(
@@ -626,7 +653,8 @@ def run_hadolint(
                 1,
             }:
                 raise RuntimeError(
-                    f"Hadolint failed for {dockerfile}: "
+                    "Hadolint failed for Dockerfile batch "
+                    f"starting at index {batch_start}: "
                     f"{completed.stderr.strip()}"
                 )
 
@@ -636,23 +664,36 @@ def run_hadolint(
                 continue
 
             try:
-                findings = json.loads(
-                    stdout
-                )
+                decoder = json.JSONDecoder()
+                findings = []
+                position = 0
+
+                while position < len(stdout):
+                    while (
+                        position < len(stdout)
+                        and stdout[position].isspace()
+                    ):
+                        position += 1
+
+                    if position >= len(stdout):
+                        break
+
+                    parsed, position = decoder.raw_decode(
+                        stdout,
+                        position,
+                    )
+
+                    if isinstance(parsed, list):
+                        findings.extend(parsed)
+                    elif isinstance(parsed, dict):
+                        findings.append(parsed)
+
             except json.JSONDecodeError as exc:
                 raise RuntimeError(
-                    f"Hadolint returned invalid JSON "
-                    f"for {dockerfile}."
+                    "Hadolint returned invalid JSON for "
+                    f"Dockerfile batch starting at index "
+                    f"{batch_start}."
                 ) from exc
-
-            try:
-                relative_path = (
-                    dockerfile.relative_to(
-                        scan_root
-                    )
-                )
-            except ValueError:
-                relative_path = dockerfile
 
             for finding in findings:
                 rule_id = str(
@@ -671,6 +712,31 @@ def run_hadolint(
                     not in selected_rules
                 ):
                     continue
+
+                file_value = str(
+                    finding.get(
+                        "file",
+                        "",
+                    )
+                )
+
+                if file_value:
+                    finding_path = Path(
+                        file_value
+                    )
+                elif len(batch) == 1:
+                    finding_path = batch[0]
+                else:
+                    continue
+
+                try:
+                    relative_path = (
+                        finding_path.relative_to(
+                            scan_root
+                        )
+                    )
+                except ValueError:
+                    relative_path = finding_path
 
                 severity = str(
                     finding.get(

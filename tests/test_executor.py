@@ -93,20 +93,34 @@ def test_run_hadolint(
     monkeypatch,
 ):
     """
-    Test Hadolint execution using a mocked command.
+    Test batched Hadolint execution and ZIP metadata filtering.
     """
-
     source_directory = (
         tmp_path / "source"
     )
     source_directory.mkdir()
 
-    dockerfile = (
-        source_directory / "Dockerfile"
+    first = (
+        source_directory / "First.Dockerfile"
+    )
+    first.write_text(
+        "FROM ubuntu:latest\nUSER root\n",
+        encoding="utf-8",
     )
 
-    dockerfile.write_text(
-        "FROM ubuntu:latest\nUSER root\n",
+    second = (
+        source_directory / "Second.Dockerfile"
+    )
+    second.write_text(
+        "FROM alpine:latest\n",
+        encoding="utf-8",
+    )
+
+    metadata = (
+        source_directory / "._First.Dockerfile"
+    )
+    metadata.write_text(
+        "metadata",
         encoding="utf-8",
     )
 
@@ -119,16 +133,26 @@ def test_run_hadolint(
         "w",
     ) as archive:
         archive.write(
-            dockerfile,
-            arcname="sample/Dockerfile",
+            first,
+            arcname="sample/First.Dockerfile",
+        )
+        archive.write(
+            second,
+            arcname="sample/Second.Dockerfile",
+        )
+        archive.write(
+            metadata,
+            arcname=(
+                "__MACOSX/sample/"
+                "._First.Dockerfile"
+            ),
         )
 
     rules_file = (
         tmp_path / "rules.txt"
     )
-
     rules_file.write_text(
-        "DL3002\n",
+        "NO DIFFERENCES FOUND\n",
         encoding="utf-8",
     )
 
@@ -138,20 +162,7 @@ def test_run_hadolint(
         lambda value: "/usr/bin/hadolint",
     )
 
-    fake_json = json.dumps(
-        [
-            {
-                "code": "DL3002",
-                "column": 1,
-                "file": "Dockerfile",
-                "level": "warning",
-                "line": 2,
-                "message": (
-                    "Last user should not be root."
-                ),
-            }
-        ]
-    )
+    commands = []
 
     def fake_run(
         command,
@@ -159,10 +170,44 @@ def test_run_hadolint(
         text,
         check,
     ):
+        commands.append(command)
+
+        dockerfiles = [
+            value
+            for value in command
+            if value.endswith(".Dockerfile")
+        ]
+
+        assert len(dockerfiles) == 2
+        assert not any(
+            "._First.Dockerfile" in value
+            for value in dockerfiles
+        )
+
+        first_json = json.dumps(
+            [
+                {
+                    "code": "DL3002",
+                    "file": dockerfiles[0],
+                    "level": "warning",
+                }
+            ]
+        )
+
+        second_json = json.dumps(
+            [
+                {
+                    "code": "DL3006",
+                    "file": dockerfiles[1],
+                    "level": "warning",
+                }
+            ]
+        )
+
         return subprocess.CompletedProcess(
             args=command,
             returncode=0,
-            stdout=fake_json,
+            stdout=first_json + "\n" + second_json,
             stderr="",
         )
 
@@ -177,6 +222,8 @@ def test_run_hadolint(
         rules_file,
     )
 
+    assert len(commands) == 1
+
     assert list(
         dataframe.columns
     ) == [
@@ -186,14 +233,18 @@ def test_run_hadolint(
         "COUNT",
     ]
 
-    assert len(dataframe) == 1
-    assert (
-        dataframe.iloc[0]["RULEID"]
-        == "DL3002"
-    )
-    assert (
-        dataframe.iloc[0]["COUNT"]
-        == 1
+    assert len(dataframe) == 2
+
+    assert set(
+        dataframe["RULEID"]
+    ) == {
+        "DL3002",
+        "DL3006",
+    }
+
+    assert all(
+        "__MACOSX" not in value
+        for value in dataframe["FilePath"]
     )
 
 
