@@ -125,4 +125,6 @@ Exact Python package versions are pinned in `requirements.txt`.
 - The required Gemma model is gated on Hugging Face and may require authenticated access.
 - Final Task 1 outputs were generated using real Gemma inference.
 - CIS Benchmark PDFs are intentionally excluded from the public repository.
+
+- Generated Task 1 and Task 2 outputs are retained locally and are not published in the public repository because they contain CIS-derived requirement text.
 - The course-provided Dockerfiles archive is required for the final real Task 3 Hadolint CSV.
